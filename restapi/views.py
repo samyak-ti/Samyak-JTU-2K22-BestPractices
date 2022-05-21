@@ -11,15 +11,16 @@ from django.contrib.auth.models import User
 
 # Create your views here.
 from rest_framework.permissions import AllowAny
-from rest_framework.decorators import *
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.views import api_view
+from rest_framework.decorators import action
+from rest_framework.decorators import permission_classes, authentication_classes
 
-from restapi.models import *
-from restapi.serializers import *
-from restapi.custom_exception import *
-
+from restapi.models import Expenses
+from restapi.serializers import USER_SERIALIZER, CATEGORY_SERIALIZER, Category, Groups, GROUP_SERIALIZER, UNAUTHORIZED_USER_EXCEPTION, EXPENSES_SERIALIZER, UserExpense
+# from restapi.custom_exception import *
 
 
 def index(_request):
@@ -43,12 +44,15 @@ def balance(request):
             from_user = eb['from_user']
             to_user = eb['to_user']
             if from_user == user.id:
-                final_balance[to_user] = final_balance.get(to_user, 0) - eb['amount']
+                final_balance[to_user] = final_balance.get(
+                    to_user, 0) - eb['amount']
             if to_user == user.id:
-                final_balance[from_user] = final_balance.get(from_user, 0) + eb['amount']
+                final_balance[from_user] = final_balance.get(
+                    from_user, 0) + eb['amount']
     final_balance = {k: v for k, v in final_balance.items() if v != 0}
 
-    response = [{"user": k, "amount": int(v)} for k, v in final_balance.items()]
+    response = [{"user": k, "amount": int(v)}
+                for k, v in final_balance.items()]
     return Response(response, status=200)
 
 
@@ -57,14 +61,15 @@ def normalize(expense):
     dues = {}
     for user_balance in user_balances:
         dues[user_balance.user] = dues.get(user_balance.user, 0) + user_balance.amount_lent \
-                                  - user_balance.amount_owed
+            - user_balance.amount_owed
     dues = [(k, v) for k, v in sorted(dues.items(), key=lambda item: item[1])]
     start = 0
     end = len(dues) - 1
     balances = []
     while start < end:
         amount = min(abs(dues[start][1]), abs(dues[end][1]))
-        user_balance = {"from_user": dues[start][0].id, "to_user": dues[end][0].id, "amount": amount}
+        user_balance = {"from_user": dues[start][0].id,
+                        "to_user": dues[end][0].id, "amount": amount}
         balances.append(user_balance)
         dues[start] = (dues[start][0], dues[start][1] + amount)
         dues[end] = (dues[end][0], dues[end][1] - amount)
@@ -75,27 +80,28 @@ def normalize(expense):
     return balances
 
 
-class user_view_set(ModelViewSet):
+class USER_VIEW_SET(ModelViewSet):
     queryset = User.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = USER_SERIALIZER
     permission_classes = (AllowAny,)
 
 
-class category_view_set(ModelViewSet):
+class CATEGORY_VIEW_SET(ModelViewSet):
     queryset = Category.objects.all()
-    serializer_class = CategorySerializer
+    serializer_class = CATEGORY_SERIALIZER
     http_method_names = ['get', 'post']
 
 
-class group_view_set(ModelViewSet):
+class GROUP_VIEW_SET(ModelViewSet):
     queryset = Groups.objects.all()
-    serializer_class = GroupSerializer
+    serializer_class = GROUP_SERIALIZER
 
     def get_queryset(self):
         user = self.request.user
         groups = user.members.all()
         if self.request.query_params.get('q', None) is not None:
-            groups = groups.filter(name__icontains=self.request.query_params.get('q', None))
+            groups = groups.filter(
+                name__icontains=self.request.query_params.get('q', None))
         return groups
 
     def create(self, request, *args, **kwargs):
@@ -111,7 +117,7 @@ class group_view_set(ModelViewSet):
     def members(self, request, pk=None):
         group = Groups.objects.get(id=pk)
         if group not in self.get_queryset():
-            raise UnauthorizedUserException()
+            raise UNAUTHORIZED_USER_EXCEPTION()
         body = request.data
         if body.get('add', None) is not None and body['add'].get('user_ids', None) is not None:
             added_ids = body['add']['user_ids']
@@ -128,31 +134,33 @@ class group_view_set(ModelViewSet):
     def expenses(self, _request, pk=None):
         group = Groups.objects.get(id=pk)
         if group not in self.get_queryset():
-            raise UnauthorizedUserException()
+            raise UNAUTHORIZED_USER_EXCEPTION()
         expenses = group.expenses_set
-        serializer = ExpensesSerializer(expenses, many=True)
+        serializer = EXPENSES_SERIALIZER(expenses, many=True)
         return Response(serializer.data, status=200)
 
     @action(methods=['get'], detail=True)
     def balances(self, _request, pk=None):
         group = Groups.objects.get(id=pk)
         if group not in self.get_queryset():
-            raise UnauthorizedUserException()
+            raise UNAUTHORIZED_USER_EXCEPTION()
         expenses = Expenses.objects.filter(group=group)
         dues = {}
         for expense in expenses:
             user_balances = UserExpense.objects.filter(expense=expense)
             for user_balance in user_balances:
                 dues[user_balance.user] = dues.get(user_balance.user, 0) + user_balance.amount_lent \
-                                          - user_balance.amount_owed
-        dues = [(k, v) for k, v in sorted(dues.items(), key=lambda item: item[1])]
+                    - user_balance.amount_owed
+        dues = [(k, v)
+                for k, v in sorted(dues.items(), key=lambda item: item[1])]
         start = 0
         end = len(dues) - 1
         balances = []
         while start < end:
             amount = min(abs(dues[start][1]), abs(dues[end][1]))
             amount = Decimal(amount).quantize(Decimal(10)**-2)
-            user_balance = {"from_user": dues[start][0].id, "to_user": dues[end][0].id, "amount": str(amount)}
+            user_balance = {
+                "from_user": dues[start][0].id, "to_user": dues[end][0].id, "amount": str(amount)}
             balances.append(user_balance)
             dues[start] = (dues[start][0], dues[start][1] + amount)
             dues[end] = (dues[end][0], dues[end][1] - amount)
@@ -166,7 +174,7 @@ class group_view_set(ModelViewSet):
 
 class expenses_view_set(ModelViewSet):
     queryset = Expenses.objects.all()
-    serializer_class = ExpensesSerializer
+    serializer_class = EXPENSES_SERIALIZER
 
     def get_queryset(self):
         user = self.request.user
@@ -176,6 +184,7 @@ class expenses_view_set(ModelViewSet):
         else:
             expenses = Expenses.objects.filter(users__in=user.expenses.all())
         return expenses
+
 
 @api_view(['post'])
 @authentication_classes([])
@@ -190,12 +199,14 @@ def logProcessor(request):
     if len(log_files) == 0:
         return Response({"status": "failure", "reason": "No log files provided in request"},
                         status=status.HTTP_400_BAD_REQUEST)
-    logs = multiThreadedReader(urls=data['logFiles'], num_threads=data['parallelFileProcessingCount'])
+    logs = multiThreadedReader(
+        urls=data['logFiles'], num_threads=data['parallelFileProcessingCount'])
     sorted_logs = sort_by_time_stamp(logs)
     cleaned = transform(sorted_logs)
     data = aggregate(cleaned)
     response = response_format(data)
-    return Response({"response":response}, status=status.HTTP_200_OK)
+    return Response({"response": response}, status=status.HTTP_200_OK)
+
 
 def sort_by_time_stamp(logs):
     data = []
@@ -204,6 +215,7 @@ def sort_by_time_stamp(logs):
     # print(data)
     data = sorted(data, key=lambda elem: elem[1])
     return data
+
 
 def response_format(raw_data):
     response = []
@@ -216,6 +228,7 @@ def response_format(raw_data):
         entry['logs'] = logs
         response.append(entry)
     return response
+
 
 def aggregate(cleaned_logs):
     data = {}
@@ -268,5 +281,5 @@ def multiThreadedReader(urls, num_threads):
         data = reader(url, 60)
         data = data.decode('utf-8')
         result.extend(data.split("\n"))
-    result = sorted(result, key=lambda elem:elem[1])
+    result = sorted(result, key=lambda elem: elem[1])
     return result
