@@ -4,10 +4,24 @@ from django.contrib.auth.models import User
 
 from restapi.models import Category, Groups, UserExpense, Expenses
 
+import logging
+
+# Create and configure logger using the basicConfig() function
+logging.basicConfig(filename="newfile.log",
+                    format='%(asctime)s %(message)s',
+                    filemode='w')
+
+# Creating an object of the logging
+logger = logging.getLogger()
+
+# Setting the threshold of logger to DEBUG
+logger.setLevel(logging.DEBUG)
+
 
 class USER_SERIALIZER(ModelSerializer):
     def create(self, validated_data):
         user = User.objects.create_user(**validated_data)
+        logger.info("Created User Successfully")
         return user
 
     class META(object):
@@ -46,6 +60,8 @@ class EXPENSES_SERIALIZER(ModelSerializer):
         expense = Expenses.objects.create(**validated_data)
         for eu in expense_users:
             UserExpense.objects.create(expense=expense, **eu)
+        logger.info(
+            "Created expenses serializer successfully")
         return expense
 
     def update(self, instance, validated_data):
@@ -64,12 +80,16 @@ class EXPENSES_SERIALIZER(ModelSerializer):
                 ],
             )
         instance.save()
+        logger.info(
+            "Updated expenses serializer successfully")
         return instance
 
     def validate(self, attrs):
         # user = self.context['request'].user
         user_ids = [user['user'].id for user in attrs['users']]
         if len(set(user_ids)) != len(user_ids):
+            logger.error(
+                "Single user apperars multiple times")
             raise ValidationError('Single user appears multiple times')
 
         # if data.get('group', None) is not None:
@@ -95,6 +115,7 @@ class EXPENSES_SERIALIZER(ModelSerializer):
         # if amount_lent != amount_owed or amount_lent != total_amount:
         #     raise ValidationError('Given amounts are inconsistent')
 
+        logger.info("Validated successfully")
         return attrs
 
     class META(object):

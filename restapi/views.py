@@ -19,8 +19,21 @@ from rest_framework.decorators import action
 from rest_framework.decorators import permission_classes, authentication_classes
 
 from restapi.models import Expenses
-from restapi.serializers import USER_SERIALIZER, CATEGORY_SERIALIZER, Category, Groups, GROUP_SERIALIZER, UNAUTHORIZED_USER_EXCEPTION, EXPENSES_SERIALIZER, UserExpense
-# from restapi.custom_exception import *
+from restapi.serializers import USER_SERIALIZER, CATEGORY_SERIALIZER, Category, Groups, GROUP_SERIALIZER,  EXPENSES_SERIALIZER, UserExpense
+from restapi.custom_exception import UNAUTHORIZED_USER_EXCEPTION
+
+import logging
+
+# Create and configure logger using the basicConfig() function
+logging.basicConfig(filename="newfile.log",
+                    format='%(asctime)s %(message)s',
+                    filemode='w')
+
+# Creating an object of the logging
+logger = logging.getLogger()
+
+# Setting the threshold of logger to DEBUG
+logger.setLevel(logging.DEBUG)
 
 
 def index(_request):
@@ -30,6 +43,7 @@ def index(_request):
 @api_view(['POST'])
 def logout(request):
     request.user.auth_token.delete()
+    logger.info("Logout Successfully")
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -53,6 +67,7 @@ def balance(request):
 
     response = [{"user": k, "amount": int(v)}
                 for k, v in final_balance.items()]
+    logger.info("Calculated Balance Amount Successfully")
     return Response(response, status=200)
 
 
@@ -77,6 +92,7 @@ def normalize(expense):
             start += 1
         else:
             end -= 1
+    logger.info("Normalize done Successfully")
     return balances
 
 
@@ -102,6 +118,7 @@ class GROUP_VIEW_SET(ModelViewSet):
         if self.request.query_params.get('q', None) is not None:
             groups = groups.filter(
                 name__icontains=self.request.query_params.get('q', None))
+        logger.info("Successfully Filtered Groups")
         return groups
 
     def create(self, request, *args, **kwargs):
@@ -111,12 +128,14 @@ class GROUP_VIEW_SET(ModelViewSet):
         group.save()
         group.members.add(user)
         serializer = self.get_serializer(group)
+        logger.info("Created New Member Successfully")
         return Response(serializer.data, status=201)
 
     @action(methods=['put'], detail=True)
     def members(self, request, pk=None):
         group = Groups.objects.get(id=pk)
         if group not in self.get_queryset():
+            logger.error("Unauthorized User Exception")
             raise UNAUTHORIZED_USER_EXCEPTION()
         body = request.data
         if body.get('add', None) is not None and body['add'].get('user_ids', None) is not None:
@@ -128,21 +147,25 @@ class GROUP_VIEW_SET(ModelViewSet):
             for user_id in removed_ids:
                 group.members.remove(user_id)
         group.save()
+        logger.info("Members added/removed Successfully")
         return Response(status=204)
 
     @action(methods=['get'], detail=True)
     def expenses(self, _request, pk=None):
         group = Groups.objects.get(id=pk)
         if group not in self.get_queryset():
+            logger.error("Unauthorized User Exception")
             raise UNAUTHORIZED_USER_EXCEPTION()
         expenses = group.expenses_set
         serializer = EXPENSES_SERIALIZER(expenses, many=True)
+        logger.info("Expenses returned Successfully")
         return Response(serializer.data, status=200)
 
     @action(methods=['get'], detail=True)
     def balances(self, _request, pk=None):
         group = Groups.objects.get(id=pk)
         if group not in self.get_queryset():
+            logger.error("Unauthorized User Exception")
             raise UNAUTHORIZED_USER_EXCEPTION()
         expenses = Expenses.objects.filter(group=group)
         dues = {}
@@ -168,7 +191,7 @@ class GROUP_VIEW_SET(ModelViewSet):
                 start += 1
             else:
                 end -= 1
-
+        logger.info("Balance Calculated Successfully")
         return Response(balances, status=200)
 
 
@@ -183,6 +206,7 @@ class expenses_view_set(ModelViewSet):
                 .filter(description__icontains=self.request.query_params.get('q', None))
         else:
             expenses = Expenses.objects.filter(users__in=user.expenses.all())
+        logger.info("Successfully Filtered Expenses")
         return expenses
 
 
@@ -194,9 +218,11 @@ def logProcessor(request):
     num_threads = data['parallelFileProcessingCount']
     log_files = data['logFiles']
     if num_threads <= 0 or num_threads > 30:
+        logger.error("Parallel Processing Count out of expected bounds")
         return Response({"status": "failure", "reason": "Parallel Processing Count out of expected bounds"},
                         status=status.HTTP_400_BAD_REQUEST)
     if len(log_files) == 0:
+        logger.error("No log files provided in request")
         return Response({"status": "failure", "reason": "No log files provided in request"},
                         status=status.HTTP_400_BAD_REQUEST)
     logs = multiThreadedReader(
@@ -205,6 +231,7 @@ def logProcessor(request):
     cleaned = transform(sorted_logs)
     data = aggregate(cleaned)
     response = response_format(data)
+    logger.info("Log Processor Ran Successfully")
     return Response({"response": response}, status=status.HTTP_200_OK)
 
 
@@ -213,7 +240,9 @@ def sort_by_time_stamp(logs):
     for log in logs:
         data.append(log.split(" "))
     # print(data)
+    logger.debug(data)
     data = sorted(data, key=lambda elem: elem[1])
+    logger.info("Successfully sorted data by time stamp ")
     return data
 
 
@@ -227,6 +256,7 @@ def response_format(raw_data):
             logs.append({'exception': exception, 'count': count})
         entry['logs'] = logs
         response.append(entry)
+    logger.info("Response format ran successfully")
     return response
 
 
@@ -237,6 +267,7 @@ def aggregate(cleaned_logs):
         value = data.get(key, {})
         value[text] = value.get(text, 0)+1
         data[key] = value
+    logger.info("Aggregated Logs Successfully")
     return data
 
 
@@ -263,7 +294,7 @@ def transform(logs):
 
         result.append([key, text])
         print(key)
-
+    logger.info("Transformed Logs successfully")
     return result
 
 
@@ -282,4 +313,5 @@ def multiThreadedReader(urls, num_threads):
         data = data.decode('utf-8')
         result.extend(data.split("\n"))
     result = sorted(result, key=lambda elem: elem[1])
+    logger.info("Read Multiple files thought HTTP Successfully")
     return result
